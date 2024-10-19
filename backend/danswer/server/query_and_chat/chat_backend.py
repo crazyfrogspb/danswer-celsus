@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Callable
 from collections.abc import Generator
 from typing import Tuple
+from uuid import UUID
 
 from fastapi import APIRouter
 from fastapi import Depends
@@ -24,7 +25,6 @@ from danswer.configs.app_configs import WEB_DOMAIN
 from danswer.configs.constants import FileOrigin
 from danswer.configs.constants import MessageType
 from danswer.configs.model_configs import LITELLM_PASS_THROUGH_HEADERS
-from danswer.configs.model_configs import TOOL_PASS_THROUGH_HEADERS
 from danswer.db.chat import create_chat_session
 from danswer.db.chat import create_new_chat_message
 from danswer.db.chat import delete_chat_session
@@ -73,6 +73,7 @@ from danswer.server.query_and_chat.models import RenameChatSessionResponse
 from danswer.server.query_and_chat.models import SearchFeedbackRequest
 from danswer.server.query_and_chat.models import UpdateChatSessionThreadRequest
 from danswer.server.query_and_chat.token_limit import check_token_rate_limits
+from danswer.utils.headers import get_custom_tool_additional_request_headers
 from danswer.utils.logger import setup_logger
 
 
@@ -131,7 +132,7 @@ def update_chat_session_model(
 
 @router.get("/get-chat-session/{session_id}")
 def get_chat_session(
-    session_id: int,
+    session_id: UUID,
     is_shared: bool = False,
     user: User | None = Depends(current_user),
     db_session: Session = Depends(get_session),
@@ -254,7 +255,7 @@ def rename_chat_session(
 
 @router.patch("/chat-session/{session_id}")
 def patch_chat_session(
-    session_id: int,
+    session_id: UUID,
     chat_session_update_req: ChatSessionUpdateRequest,
     user: User | None = Depends(current_user),
     db_session: Session = Depends(get_session),
@@ -271,7 +272,7 @@ def patch_chat_session(
 
 @router.delete("/delete-chat-session/{session_id}")
 def delete_chat_session_by_id(
-    session_id: int,
+    session_id: UUID,
     user: User | None = Depends(current_user),
     db_session: Session = Depends(get_session),
 ) -> None:
@@ -337,8 +338,8 @@ def handle_new_chat_message(
                 litellm_additional_headers=extract_headers(
                     request.headers, LITELLM_PASS_THROUGH_HEADERS
                 ),
-                tool_additional_headers=extract_headers(
-                    request.headers, TOOL_PASS_THROUGH_HEADERS
+                custom_tool_additional_headers=get_custom_tool_additional_request_headers(
+                    request.headers
                 ),
                 is_connected=is_disconnected_func,
             ):

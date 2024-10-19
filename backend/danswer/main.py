@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 from typing import cast
 
+import sentry_sdk
 import uvicorn
 from fastapi import APIRouter
 from fastapi import FastAPI
@@ -15,6 +16,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from httpx_oauth.clients.google import GoogleOAuth2
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
 from sqlalchemy.orm import Session
 
 from danswer import __version__
@@ -54,6 +57,7 @@ from danswer.server.features.input_prompt.api import (
     admin_router as admin_input_prompt_router,
 )
 from danswer.server.features.input_prompt.api import basic_router as input_prompt_router
+from danswer.server.features.notifications.api import router as notification_router
 from danswer.server.features.persona.api import admin_router as admin_persona_router
 from danswer.server.features.persona.api import basic_router as persona_router
 from danswer.server.features.prompt.api import basic_router as prompt_router
@@ -90,6 +94,7 @@ from danswer.utils.variable_functionality import fetch_versioned_implementation
 from danswer.utils.variable_functionality import global_version
 from danswer.utils.variable_functionality import set_is_ee_based_on_env_variable
 from shared_configs.configs import CORS_ALLOWED_ORIGIN
+from shared_configs.configs import SENTRY_DSN
 
 logger = setup_logger()
 
@@ -176,9 +181,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         # We cache this at the beginning so there is no delay in the first telemetry
         get_or_generate_uuid()
 
+        # If we are multi-tenant, we need to only set up initial public tables
         with Session(engine) as db_session:
             setup_danswer(db_session)
-
     else:
         setup_multitenant_danswer()
 
@@ -204,6 +209,15 @@ def get_application() -> FastAPI:
     application = FastAPI(
         title="Danswer Backend", version=__version__, lifespan=lifespan
     )
+    if SENTRY_DSN:
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[StarletteIntegration(), FastApiIntegration()],
+            traces_sample_rate=0.5,
+        )
+        logger.info("Sentry initialized")
+    else:
+        logger.debug("Sentry DSN not provided, skipping Sentry initialization")
 
     # Add the custom exception handler
     application.add_exception_handler(status.HTTP_400_BAD_REQUEST, log_http_error)
@@ -233,6 +247,7 @@ def get_application() -> FastAPI:
     include_router_with_global_prefix_prepended(application, admin_persona_router)
     include_router_with_global_prefix_prepended(application, input_prompt_router)
     include_router_with_global_prefix_prepended(application, admin_input_prompt_router)
+    include_router_with_global_prefix_prepended(application, notification_router)
     include_router_with_global_prefix_prepended(application, prompt_router)
     include_router_with_global_prefix_prepended(application, tool_router)
     include_router_with_global_prefix_prepended(application, admin_tool_router)
@@ -302,6 +317,7 @@ def get_application() -> FastAPI:
             prefix="/auth/oauth",
             tags=["auth"],
         )
+
         # Need basic auth router for `logout` endpoint
         include_router_with_global_prefix_prepended(
             application,
