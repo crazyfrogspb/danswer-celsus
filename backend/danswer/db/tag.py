@@ -28,6 +28,10 @@ def check_tag_validity(tag_key: str, tag_value: str) -> bool:
     return True
 
 
+def sanitize_string(s: str) -> str:
+    return s.replace('\0', '') 
+
+
 def create_or_add_document_tag(
     tag_key: str,
     tag_value: str,
@@ -35,6 +39,9 @@ def create_or_add_document_tag(
     document_id: str,
     db_session: Session,
 ) -> Tag | None:
+    tag_key = sanitize_string(tag_key)
+    tag_value = sanitize_string(tag_value)
+
     if not check_tag_validity(tag_key, tag_value):
         return None
 
