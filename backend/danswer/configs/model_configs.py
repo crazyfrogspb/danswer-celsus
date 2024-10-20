@@ -12,12 +12,12 @@ import os
 # The useable models configured as below must be SentenceTransformer compatible
 # NOTE: DO NOT CHANGE SET THESE UNLESS YOU KNOW WHAT YOU ARE DOING
 # IDEALLY, YOU SHOULD CHANGE EMBEDDING MODELS VIA THE UI
-DEFAULT_DOCUMENT_ENCODER_MODEL = "nomic-ai/nomic-embed-text-v1"
+DEFAULT_DOCUMENT_ENCODER_MODEL = "intfloat/multilingual-e5-large"
 DOCUMENT_ENCODER_MODEL = (
     os.environ.get("DOCUMENT_ENCODER_MODEL") or DEFAULT_DOCUMENT_ENCODER_MODEL
 )
 # If the below is changed, Vespa deployment must also be changed
-DOC_EMBEDDING_DIM = int(os.environ.get("DOC_EMBEDDING_DIM") or 768)
+DOC_EMBEDDING_DIM = int(os.environ.get("DOC_EMBEDDING_DIM") or 1024)
 # Model should be chosen with 512 context size, ideally don't change this
 # If multipass_indexing is enabled, the max context size would be set to
 # DOC_EMBEDDING_CONTEXT_SIZE * LARGE_CHUNK_RATIO
@@ -36,8 +36,9 @@ OLD_DEFAULT_MODEL_NORMALIZE_EMBEDDINGS = False
 SIM_SCORE_RANGE_LOW = float(os.environ.get("SIM_SCORE_RANGE_LOW") or 0.0)
 SIM_SCORE_RANGE_HIGH = float(os.environ.get("SIM_SCORE_RANGE_HIGH") or 1.0)
 # Certain models like e5, BGE, etc use a prefix for asymmetric retrievals (query generally shorter than docs)
-ASYM_QUERY_PREFIX = os.environ.get("ASYM_QUERY_PREFIX", "search_query: ")
-ASYM_PASSAGE_PREFIX = os.environ.get("ASYM_PASSAGE_PREFIX", "search_document: ")
+ASYM_QUERY_PREFIX = os.environ.get("ASYM_QUERY_PREFIX", "query: ")
+ASYM_QUERY_PREFIX = "query: "
+ASYM_PASSAGE_PREFIX = os.environ.get("ASYM_PASSAGE_PREFIX", "passage: ")
 # Purely an optimization, memory limitation consideration
 
 # User's set embedding batch size overrides the default encoding batch sizes
