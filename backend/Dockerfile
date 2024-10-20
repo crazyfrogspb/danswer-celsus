@@ -94,6 +94,8 @@ nltk.download('stopwords', quiet=True); \
 nltk.download('punkt', quiet=True);"
 # nltk.download('wordnet', quiet=True); introduce this back if lemmatization is needed
 
+RUN apt-get update && apt-get install -y curl python3-dev && pip install httpx[socks] pysocks
+
 # Set up application files
 WORKDIR /app
 

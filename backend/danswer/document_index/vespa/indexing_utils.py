@@ -180,6 +180,16 @@ def _index_vespa_chunk(
         BOOST: chunk.boost,
     }
 
+    def sanitize_string(s: str) -> str:
+        return s.replace("\0", "")
+    def sanitize_metadata_list(metadata_list: list) -> list:
+        return [sanitize_string(item) for item in metadata_list if isinstance(item, str)]
+    
+    if vespa_document_fields[METADATA_LIST]:
+        vespa_document_fields[METADATA_LIST] = sanitize_metadata_list(vespa_document_fields[METADATA_LIST])
+    if vespa_document_fields[METADATA_SUFFIX]:
+        vespa_document_fields[METADATA_SUFFIX] = sanitize_string(vespa_document_fields[METADATA_SUFFIX])
+
     if multitenant:
         if chunk.tenant_id:
             vespa_document_fields[TENANT_ID] = chunk.tenant_id

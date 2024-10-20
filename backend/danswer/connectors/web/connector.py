@@ -321,7 +321,7 @@ class WebConnector(LoadConnector):
                     continue
 
                 page = context.new_page()
-                page_response = page.goto(current_url)
+                page_response = page.goto(current_url, wait_until='domcontentloaded')
                 last_modified = (
                     page_response.header_value("Last-Modified")
                     if page_response
