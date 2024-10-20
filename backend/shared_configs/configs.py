@@ -36,7 +36,7 @@ ALT_INDEX_SUFFIX = "__danswer_alt_index"
 # Used for loading defaults for automatic deployments and dev flows
 # For local, use: mixedbread-ai/mxbai-rerank-xsmall-v1
 DEFAULT_CROSS_ENCODER_MODEL_NAME = (
-    os.environ.get("DEFAULT_CROSS_ENCODER_MODEL_NAME") or None
+    os.environ.get("DEFAULT_CROSS_ENCODER_MODEL_NAME") or "mixedbread-ai/mxbai-rerank-large-v1",
 )
 DEFAULT_CROSS_ENCODER_API_KEY = os.environ.get("DEFAULT_CROSS_ENCODER_API_KEY") or None
 DEFAULT_CROSS_ENCODER_PROVIDER_TYPE = (
@@ -188,6 +188,11 @@ SUPPORTED_EMBEDDING_MODELS = [
         name="intfloat/e5-small-v2",
         dim=384,
         index_name="danswer_chunk_intfloat_e5_small_v2",
+    ),
+    SupportedEmbeddingModel(
+        name="intfloat/multilingual-e5-large",
+        dim=1024,
+        index_name="danswer_chunk_intfloat_multilingual_e5_large",
     ),
     SupportedEmbeddingModel(
         name="intfloat/multilingual-e5-base",
