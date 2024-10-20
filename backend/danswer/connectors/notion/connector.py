@@ -28,6 +28,11 @@ logger = setup_logger()
 
 _NOTION_CALL_TIMEOUT = 30  # 30 seconds
 
+proxies = {
+     'http': 'socks5://host.docker.internal:1080',
+     'https': 'socks5://host.docker.internal:1080',
+}
+
 
 # TODO: Tables need to be ingested, Pages need to have their metadata ingested
 
@@ -122,6 +127,7 @@ class NotionConnector(LoadConnector, PollConnector):
             headers=self.headers,
             params=query_params,
             timeout=_NOTION_CALL_TIMEOUT,
+            proxies=proxies
         )
         try:
             res.raise_for_status()
@@ -153,6 +159,7 @@ class NotionConnector(LoadConnector, PollConnector):
             page_url,
             headers=self.headers,
             timeout=_NOTION_CALL_TIMEOUT,
+            proxies=proxies,
         )
         try:
             res.raise_for_status()
@@ -174,6 +181,7 @@ class NotionConnector(LoadConnector, PollConnector):
             database_url,
             headers=self.headers,
             timeout=_NOTION_CALL_TIMEOUT,
+            proxies=proxies,
         )
         try:
             res.raise_for_status()
@@ -200,6 +208,7 @@ class NotionConnector(LoadConnector, PollConnector):
             headers=self.headers,
             json=body,
             timeout=_NOTION_CALL_TIMEOUT,
+            proxies=proxies,
         )
         try:
             res.raise_for_status()
@@ -222,6 +231,8 @@ class NotionConnector(LoadConnector, PollConnector):
         """Converts Notion properties to a string"""
 
         def _recurse_properties(inner_dict: dict[str, Any]) -> str | None:
+            if isinstance(inner_dict, (int, float, str)):
+                return str(inner_dict)
             while "type" in inner_dict:
                 type_name = inner_dict["type"]
                 inner_dict = inner_dict[type_name]
@@ -229,6 +240,9 @@ class NotionConnector(LoadConnector, PollConnector):
                 # If the innermost layer is None, the value is not set
                 if not inner_dict:
                     return None
+
+                if isinstance(inner_dict, (int, float, str)):
+                    return str(inner_dict)
 
                 if isinstance(inner_dict, list):
                     list_properties = [
@@ -508,6 +522,7 @@ class NotionConnector(LoadConnector, PollConnector):
             headers=self.headers,
             json=query_dict,
             timeout=_NOTION_CALL_TIMEOUT,
+            proxies=proxies,
         )
         res.raise_for_status()
         return NotionSearchResponse(**res.json())
