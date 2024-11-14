@@ -179,6 +179,7 @@ def _index_vespa_chunk(
         BOOST: chunk.boost,
     }
 
+
     def sanitize_string(s: str) -> str:
         return s.replace("\0", "")
     def sanitize_metadata_list(metadata_list: list) -> list:
