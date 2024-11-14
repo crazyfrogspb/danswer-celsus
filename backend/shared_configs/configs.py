@@ -36,7 +36,7 @@ ALT_INDEX_SUFFIX = "__danswer_alt_index"
 # Used for loading defaults for automatic deployments and dev flows
 # For local, use: mixedbread-ai/mxbai-rerank-xsmall-v1
 DEFAULT_CROSS_ENCODER_MODEL_NAME = (
-    os.environ.get("DEFAULT_CROSS_ENCODER_MODEL_NAME") or "mixedbread-ai/mxbai-rerank-large-v1",
+    os.environ.get("DEFAULT_CROSS_ENCODER_MODEL_NAME") or None
 )
 DEFAULT_CROSS_ENCODER_API_KEY = os.environ.get("DEFAULT_CROSS_ENCODER_API_KEY") or None
 DEFAULT_CROSS_ENCODER_PROVIDER_TYPE = (
