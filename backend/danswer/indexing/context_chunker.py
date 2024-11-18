@@ -184,7 +184,7 @@ class ContextChunker(Chunker):
             heartbeat=heartbeat,
         )
 
-        self.llm = llm or MockLLM()
+        self.llm = llm or RealLLM()
 
     def _add_line_numbers(self, text: str) -> str:
         """Add line numbers to each line of text"""
@@ -336,5 +336,15 @@ class ContextChunker(Chunker):
 
             if self.heartbeat:
                 self.heartbeat.heartbeat()
+
+        # Print chunks
+        print("\nChunks created:")
+        print("=" * 100)
+        for i, chunk in enumerate(final_chunks):
+            print(f"\nChunk {i+1}:")
+            print("-" * 50)
+            print(f"Content ({len(chunk.content)} chars):")
+            print(chunk.content)
+            print("-" * 50)
 
         return final_chunks
