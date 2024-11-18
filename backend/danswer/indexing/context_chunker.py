@@ -129,11 +129,11 @@ class MockLLM:
     def __init__(self):
         pass
 
-    def analyze_document(self, document_text: str, language: str | None = None) -> tuple[str, str]:
+    def analyze_document(self, document_text: str) -> tuple[str, str]:
         """Mock document analysis returning title and summary"""
         return "Mock Document Title", "This is a mock document summary."
 
-    def analyze_sections(self, document_text: str, language: str | None = None) -> List[Section]:
+    def analyze_sections(self, document_text: str) -> List[Section]:
         """Mock section analysis returning predefined sections"""
         lines = document_text.split("\n")
         if not lines:
@@ -196,10 +196,10 @@ class ContextChunker(Chunker):
         lines = text.split("\n")
         return "\n".join(lines[start - 1 : end])
 
-    def _get_document_context(self, document: Document, language: str | None = None) -> str:
+    def _get_document_context(self, document: Document) -> str:
         """Generate document context using LLM"""
         document_text = "\n".join(section.text for section in document.sections)
-        title, summary = self.llm.analyze_document(document_text, language)
+        title, summary = self.llm.analyze_document(document_text)
         return f"Document context: this excerpt is from a document titled '{title}'. {summary}"
 
     def _get_section_context(self, section: Section) -> str:
