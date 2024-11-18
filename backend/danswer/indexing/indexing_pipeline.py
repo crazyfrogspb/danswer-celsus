@@ -14,16 +14,9 @@ from danswer.db.document import (
     prepare_to_modify_documents,
     update_docs_last_modified__no_commit,
     update_docs_updated_at__no_commit,
-    upsert_documents_complete,
+    upsert_document_by_connector_credential_pair,
+    upsert_documents,
 )
-from danswer.connectors.models import Document
-from danswer.connectors.models import IndexAttemptMetadata
-from danswer.db.document import get_documents_by_ids
-from danswer.db.document import prepare_to_modify_documents
-from danswer.db.document import update_docs_last_modified__no_commit
-from danswer.db.document import update_docs_updated_at__no_commit
-from danswer.db.document import upsert_document_by_connector_credential_pair
-from danswer.db.document import upsert_documents
 from danswer.db.document_set import fetch_document_sets_for_documents
 from danswer.db.index_attempt import create_index_attempt_error
 from danswer.db.models import Document as DBDocument
@@ -108,9 +101,7 @@ def get_doc_ids_to_update(documents: list[Document], db_docs: list[DBDocument]) 
 
     NB: Still need to associate the document in the DB if multiple connectors are
     indexing the same doc."""
-    id_update_time_map = {
-        doc.id: doc.doc_updated_at for doc in db_docs if doc.doc_updated_at
-    }
+    id_update_time_map = {doc.id: doc.doc_updated_at for doc in db_docs if doc.doc_updated_at}
 
     updatable_docs: list[Document] = []
     for doc in documents:
@@ -215,11 +206,7 @@ def index_doc_batch_prepare(
         document_ids=document_ids,
     )
 
-    updatable_docs = (
-        get_doc_ids_to_update(documents=documents, db_docs=db_docs)
-        if not ignore_time_skip
-        else documents
-    )
+    updatable_docs = get_doc_ids_to_update(documents=documents, db_docs=db_docs) if not ignore_time_skip else documents
 
     # for all updatable docs, upsert into the DB
     # Does not include doc_updated_at which is also used to indicate a successful update
@@ -230,10 +217,7 @@ def index_doc_batch_prepare(
             db_session=db_session,
         )
 
-    logger.info(
-        f"Upserted {len(updatable_docs)} changed docs out of "
-        f"{len(documents)} total docs into the DB"
-    )
+    logger.info(f"Upserted {len(updatable_docs)} changed docs out of " f"{len(documents)} total docs into the DB")
 
     # for all docs, upsert the document to cc pair relationship
     upsert_document_by_connector_credential_pair(
