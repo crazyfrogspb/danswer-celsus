@@ -1,18 +1,20 @@
+import os
 import traceback
 from functools import partial
 from typing import Protocol
 
-from pydantic import BaseModel
-from pydantic import ConfigDict
-from sqlalchemy.orm import Session
-
 from danswer.access.access import get_access_for_documents
 from danswer.access.models import DocumentAccess
-from danswer.configs.app_configs import ENABLE_MULTIPASS_INDEXING
-from danswer.configs.app_configs import INDEXING_EXCEPTION_LIMIT
+from danswer.configs.app_configs import ENABLE_MULTIPASS_INDEXING, INDEXING_EXCEPTION_LIMIT
 from danswer.configs.constants import DEFAULT_BOOST
-from danswer.connectors.cross_connector_utils.miscellaneous_utils import (
-    get_experts_stores_representations,
+from danswer.connectors.cross_connector_utils.miscellaneous_utils import get_experts_stores_representations
+from danswer.connectors.models import Document, IndexAttemptMetadata
+from danswer.db.document import (
+    get_documents_by_ids,
+    prepare_to_modify_documents,
+    update_docs_last_modified__no_commit,
+    update_docs_updated_at__no_commit,
+    upsert_documents_complete,
 )
 from danswer.connectors.models import Document
 from danswer.connectors.models import IndexAttemptMetadata
@@ -26,18 +28,18 @@ from danswer.db.document_set import fetch_document_sets_for_documents
 from danswer.db.index_attempt import create_index_attempt_error
 from danswer.db.models import Document as DBDocument
 from danswer.db.search_settings import get_current_search_settings
-from danswer.db.tag import create_or_add_document_tag
-from danswer.db.tag import create_or_add_document_tag_list
-from danswer.document_index.interfaces import DocumentIndex
-from danswer.document_index.interfaces import DocumentMetadata
+from danswer.db.tag import create_or_add_document_tag, create_or_add_document_tag_list
+from danswer.document_index.interfaces import DocumentIndex, DocumentMetadata
 from danswer.indexing.chunker import Chunker
+from danswer.indexing.context_chunker import ContextChunker
 from danswer.indexing.embedder import IndexingEmbedder
 from danswer.indexing.indexing_heartbeat import IndexingHeartbeat
-from danswer.indexing.models import DocAwareChunk
-from danswer.indexing.models import DocMetadataAwareIndexChunk
+from danswer.indexing.models import DocAwareChunk, DocMetadataAwareIndexChunk
 from danswer.utils.logger import setup_logger
 from danswer.utils.timing import log_function_time
+from pydantic import BaseModel, ConfigDict
 from shared_configs.enums import EmbeddingProvider
+from sqlalchemy.orm import Session
 
 logger = setup_logger()
 
@@ -53,8 +55,7 @@ class IndexingPipelineProtocol(Protocol):
         self,
         document_batch: list[Document],
         index_attempt_metadata: IndexAttemptMetadata,
-    ) -> tuple[int, int]:
-        ...
+    ) -> tuple[int, int]: ...
 
 
 def _upsert_documents_in_db(
@@ -65,9 +66,7 @@ def _upsert_documents_in_db(
     # Metadata here refers to basic document info, not metadata about the actual content
     document_metadata_list: list[DocumentMetadata] = []
     for doc in documents:
-        first_link = next(
-            (section.link for section in doc.sections if section.link), ""
-        )
+        first_link = next((section.link for section in doc.sections if section.link), "")
         db_doc_metadata = DocumentMetadata(
             connector_id=index_attempt_metadata.connector_id,
             credential_id=index_attempt_metadata.credential_id,
@@ -103,9 +102,7 @@ def _upsert_documents_in_db(
                 )
 
 
-def get_doc_ids_to_update(
-    documents: list[Document], db_docs: list[DBDocument]
-) -> list[Document]:
+def get_doc_ids_to_update(documents: list[Document], db_docs: list[DBDocument]) -> list[Document]:
     """Figures out which documents actually need to be updated. If a document is already present
     and the `updated_at` hasn't changed, we shouldn't need to do anything with it.
 
@@ -117,11 +114,7 @@ def get_doc_ids_to_update(
 
     updatable_docs: list[Document] = []
     for doc in documents:
-        if (
-            doc.id in id_update_time_map
-            and doc.doc_updated_at
-            and doc.doc_updated_at <= id_update_time_map[doc.id]
-        ):
+        if doc.id in id_update_time_map and doc.doc_updated_at and doc.doc_updated_at <= id_update_time_map[doc.id]:
             continue
         updatable_docs.append(doc)
 
@@ -165,9 +158,7 @@ def index_doc_batch_with_handler(
             exception_traceback=trace,
             db_session=db_session,
         )
-        logger.exception(
-            f"Indexing batch {index_attempt_metadata.batch_num} failed. msg='{e}' trace='{trace}'"
-        )
+        logger.exception(f"Indexing batch {index_attempt_metadata.batch_num} failed. msg='{e}' trace='{trace}'")
 
         index_attempt_metadata.num_exceptions += 1
         if index_attempt_metadata.num_exceptions == INDEXING_EXCEPTION_LIMIT:
@@ -181,9 +172,7 @@ def index_doc_batch_with_handler(
                 f"Maximum number of exceptions for this index attempt "
                 f"({INDEXING_EXCEPTION_LIMIT}) has been exceeded."
             )
-            raise RuntimeError(
-                f"Maximum exception limit of {INDEXING_EXCEPTION_LIMIT} exceeded."
-            )
+            raise RuntimeError(f"Maximum exception limit of {INDEXING_EXCEPTION_LIMIT} exceeded.")
         else:
             pass
 
@@ -210,17 +199,11 @@ def index_doc_batch_prepare(
             # If the document doesn't have either, then there is no useful information in it
             # This is again verified later in the pipeline after chunking but at that point there should
             # already be no documents that are empty.
-            logger.warning(
-                f"Skipping document with ID {document.id} as it has neither title nor content."
-            )
-        elif (
-            document.title is not None and not document.title.strip() and empty_contents
-        ):
+            logger.warning(f"Skipping document with ID {document.id} as it has neither title nor content.")
+        elif document.title is not None and not document.title.strip() and empty_contents:
             # The title is explicitly empty ("" and not None) and the document is empty
             # so when building the chunk text representation, it will be empty and unuseable
-            logger.warning(
-                f"Skipping document with ID {document.id} as the chunks will be empty."
-            )
+            logger.warning(f"Skipping document with ID {document.id} as the chunks will be empty.")
         else:
             documents.append(document)
 
@@ -265,9 +248,7 @@ def index_doc_batch_prepare(
         return None
 
     id_to_db_doc_map = {doc.id: doc for doc in db_docs}
-    return DocumentBatchPrepareContext(
-        updatable_docs=updatable_docs, id_to_db_doc_map=id_to_db_doc_map
-    )
+    return DocumentBatchPrepareContext(updatable_docs=updatable_docs, id_to_db_doc_map=id_to_db_doc_map)
 
 
 @log_function_time(debug_only=True)
@@ -315,9 +296,7 @@ def index_doc_batch(
     # NOTE: don't need to acquire till here, since this is when the actual race condition
     # with Vespa can occur.
     with prepare_to_modify_documents(db_session=db_session, document_ids=updatable_ids):
-        document_id_to_access_info = get_access_for_documents(
-            document_ids=updatable_ids, db_session=db_session
-        )
+        document_id_to_access_info = get_access_for_documents(document_ids=updatable_ids, db_session=db_session)
         document_id_to_document_set = {
             document_id: document_sets
             for document_id, document_sets in fetch_document_sets_for_documents(
@@ -333,12 +312,8 @@ def index_doc_batch(
         access_aware_chunks = [
             DocMetadataAwareIndexChunk.from_index_chunk(
                 index_chunk=chunk,
-                access=document_id_to_access_info.get(
-                    chunk.source_document.id, no_access
-                ),
-                document_sets=set(
-                    document_id_to_document_set.get(chunk.source_document.id, [])
-                ),
+                access=document_id_to_access_info.get(chunk.source_document.id, no_access),
+                document_sets=set(document_id_to_document_set.get(chunk.source_document.id, [])),
                 boost=(
                     ctx.id_to_db_doc_map[chunk.source_document.id].boost
                     if chunk.source_document.id in ctx.id_to_db_doc_map
@@ -349,18 +324,14 @@ def index_doc_batch(
             for chunk in chunks_with_embeddings
         ]
 
-        logger.debug(
-            f"Indexing the following chunks: {[chunk.to_short_descriptor() for chunk in access_aware_chunks]}"
-        )
+        logger.debug(f"Indexing the following chunks: {[chunk.to_short_descriptor() for chunk in access_aware_chunks]}")
         # A document will not be spread across different batches, so all the
         # documents with chunks in this set, are fully represented by the chunks
         # in this set
         insertion_records = document_index.index(chunks=access_aware_chunks)
 
         successful_doc_ids = [record.document_id for record in insertion_records]
-        successful_docs = [
-            doc for doc in ctx.updatable_docs if doc.id in successful_doc_ids
-        ]
+        successful_docs = [doc for doc in ctx.updatable_docs if doc.id in successful_doc_ids]
 
         last_modified_ids = []
         ids_to_new_updated_at = {}
@@ -371,19 +342,13 @@ def index_doc_batch(
                 continue
             ids_to_new_updated_at[doc.id] = doc.doc_updated_at
 
-        update_docs_updated_at__no_commit(
-            ids_to_new_updated_at=ids_to_new_updated_at, db_session=db_session
-        )
+        update_docs_updated_at__no_commit(ids_to_new_updated_at=ids_to_new_updated_at, db_session=db_session)
 
-        update_docs_last_modified__no_commit(
-            document_ids=last_modified_ids, db_session=db_session
-        )
+        update_docs_last_modified__no_commit(document_ids=last_modified_ids, db_session=db_session)
 
         db_session.commit()
 
-    return len([r for r in insertion_records if r.already_existed is False]), len(
-        access_aware_chunks
-    )
+    return len([r for r in insertion_records if r.already_existed is False]), len(access_aware_chunks)
 
 
 def build_indexing_pipeline(
@@ -398,37 +363,38 @@ def build_indexing_pipeline(
 ) -> IndexingPipelineProtocol:
     """Builds a pipeline which takes in a list (batch) of docs and indexes them."""
     search_settings = get_current_search_settings(db_session)
-    multipass = (
-        search_settings.multipass_indexing
-        if search_settings
-        else ENABLE_MULTIPASS_INDEXING
-    )
+    multipass = search_settings.multipass_indexing if search_settings else ENABLE_MULTIPASS_INDEXING
 
     enable_large_chunks = (
         multipass
         and
         # Only local models that supports larger context are from Nomic
-        (
-            embedder.provider_type is not None
-            or embedder.model_name.startswith("nomic-ai")
-        )
+        (embedder.provider_type is not None or embedder.model_name.startswith("nomic-ai"))
         and
         # Cohere does not support larger context they recommend not going above 512 tokens
         embedder.provider_type != EmbeddingProvider.COHERE
     )
 
-    chunker = chunker or Chunker(
-        tokenizer=embedder.embedding_model.tokenizer,
-        enable_multipass=multipass,
-        enable_large_chunks=enable_large_chunks,
-        # after every doc, update status in case there are a bunch of
-        # really long docs
-        heartbeat=IndexingHeartbeat(
-            index_attempt_id=attempt_id, db_session=db_session, freq=1
+    if os.environ.get("USE_CONTEXT_CHUNKER", "").lower() == "true":
+        logger.debug("USING CONTEXT CHUNKER")
+        default_chunker = ContextChunker(
+            tokenizer=embedder.embedding_model.tokenizer,
+            heartbeat=(
+                IndexingHeartbeat(index_attempt_id=attempt_id, db_session=db_session, freq=1) if attempt_id else None
+            ),
         )
-        if attempt_id
-        else None,
-    )
+    else:
+        default_chunker = Chunker(
+            tokenizer=embedder.embedding_model.tokenizer,
+            enable_multipass=multipass,
+            enable_large_chunks=enable_large_chunks,
+            # after every doc, update status in case there are a bunch of
+            # really long docs
+            heartbeat=(
+                IndexingHeartbeat(index_attempt_id=attempt_id, db_session=db_session, freq=1) if attempt_id else None
+            ),
+        )
+    chunker = chunker or default_chunker
 
     return partial(
         index_doc_batch_with_handler,

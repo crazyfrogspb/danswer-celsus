@@ -5,9 +5,7 @@ services:
       context: ../../backend
       dockerfile: Dockerfile
     command: >
-      /bin/sh -c "alembic upgrade head &&
-      echo \"Starting Danswer Api Server\" &&
-      uvicorn danswer.main:app --host 0.0.0.0 --port 8080"
+      /bin/sh -c "alembic upgrade head && echo \"Starting Danswer Api Server\" && uvicorn danswer.main:app --host 0.0.0.0 --port 8080"
     depends_on:
       - relational_db
       - index
@@ -76,6 +74,7 @@ services:
       - DISABLE_RERANK_FOR_STREAMING=${DISABLE_RERANK_FOR_STREAMING:-}
       - MODEL_SERVER_HOST=${MODEL_SERVER_HOST:-inference_model_server}
       - MODEL_SERVER_PORT=${MODEL_SERVER_PORT:-}
+      - USE_CONTEXT_CHUNKER=${USE_CONTEXT_CHUNKER:-}
       # Leave this on pretty please? Nothing sensitive is collected!
       # https://docs.danswer.dev/more/telemetry
       - DISABLE_TELEMETRY=${DISABLE_TELEMETRY:-}
@@ -115,11 +114,9 @@ services:
       context: ../../backend
       dockerfile: Dockerfile
     command: >
-      /bin/sh -c "
-      if [ -f /etc/ssl/certs/custom-ca.crt ]; then
+      /bin/sh -c " if [ -f /etc/ssl/certs/custom-ca.crt ]; then
         update-ca-certificates;
-      fi &&
-      /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
+      fi && /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
     depends_on:
       - relational_db
       - index
@@ -181,6 +178,7 @@ services:
       - GONG_CONNECTOR_START_TIME=${GONG_CONNECTOR_START_TIME:-}
       - NOTION_CONNECTOR_ENABLE_RECURSIVE_PAGE_LOOKUP=${NOTION_CONNECTOR_ENABLE_RECURSIVE_PAGE_LOOKUP:-}
       - GITHUB_CONNECTOR_BASE_URL=${GITHUB_CONNECTOR_BASE_URL:-}
+      - USE_CONTEXT_CHUNKER=${USE_CONTEXT_CHUNKER:-}
       # Celery Configs (defaults are set in the supervisord.conf file.
       # prefer doing that to have one source of defaults)
       - CELERY_WORKER_INDEXING_CONCURRENCY=${CELERY_WORKER_INDEXING_CONCURRENCY:-}
@@ -374,8 +372,7 @@ services:
     # NOTE: we have to use dos2unix to remove Carriage Return chars from the file
     # in order to make this work on both Unix-like systems and windows
     command: >
-      /bin/sh -c "dos2unix /etc/nginx/conf.d/run-nginx.sh 
-      && /etc/nginx/conf.d/run-nginx.sh app.conf.template.dev"
+      /bin/sh -c "dos2unix /etc/nginx/conf.d/run-nginx.sh  && /etc/nginx/conf.d/run-nginx.sh app.conf.template.dev"
 
   cache:
     image: redis:7.4-alpine
