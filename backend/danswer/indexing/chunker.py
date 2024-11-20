@@ -1,14 +1,7 @@
-from danswer.configs.app_configs import BLURB_SIZE
-from danswer.configs.app_configs import LARGE_CHUNK_RATIO
-from danswer.configs.app_configs import MINI_CHUNK_SIZE
-from danswer.configs.app_configs import SKIP_METADATA_IN_CHUNK
-from danswer.configs.constants import DocumentSource
-from danswer.configs.constants import RETURN_SEPARATOR
-from danswer.configs.constants import SECTION_SEPARATOR
+from danswer.configs.app_configs import BLURB_SIZE, LARGE_CHUNK_RATIO, MINI_CHUNK_SIZE, SKIP_METADATA_IN_CHUNK
+from danswer.configs.constants import RETURN_SEPARATOR, SECTION_SEPARATOR, DocumentSource
 from danswer.configs.model_configs import DOC_EMBEDDING_CONTEXT_SIZE
-from danswer.connectors.cross_connector_utils.miscellaneous_utils import (
-    get_metadata_keys_to_ignore,
-)
+from danswer.connectors.cross_connector_utils.miscellaneous_utils import get_metadata_keys_to_ignore
 from danswer.connectors.models import Document
 from danswer.indexing.indexing_heartbeat import Heartbeat
 from danswer.indexing.models import DocAwareChunk
@@ -136,6 +129,14 @@ class Chunker:
         self.tokenizer = tokenizer
         self.heartbeat = heartbeat
 
+        # Some tokenizers miss newline token
+        try:
+            if "\n" not in self.tokenizer.encoder.get_vocab().keys():
+                self.tokenizer.encoder.add_special_tokens(["\n"])
+        except AttributeError:
+            logger.warning("Couldn't add newline to tokenizer vocab")
+            pass
+
         self.blurb_splitter = SentenceSplitter(
             tokenizer=tokenizer.tokenize,
             chunk_size=blurb_size,
@@ -172,6 +173,8 @@ class Chunker:
             token_chunk = tokens[start:end]
             # Join the tokens to reconstruct the text
             chunk_text = " ".join(token_chunk)
+            if "▁" in chunk_text:
+                chunk_text = "".join(token_chunk).replace("▁", " ")
             chunks.append(chunk_text)
             start = end
         return chunks
@@ -244,9 +247,7 @@ class Chunker:
                         split_token_count = len(self.tokenizer.tokenize(split_text))
                         if split_token_count > content_token_limit:
                             # Further split the oversized chunk
-                            smaller_chunks = self._split_oversized_chunk(
-                                split_text, content_token_limit
-                            )
+                            smaller_chunks = self._split_oversized_chunk(split_text, content_token_limit)
                             for i, small_chunk in enumerate(smaller_chunks):
                                 chunks.append(
                                     _create_chunk(
@@ -278,9 +279,7 @@ class Chunker:
             current_offset = len(shared_precompare_cleanup(chunk_text))
             # In the case where the whole section is shorter than a chunk, either add
             # to chunk or start a new one
-            next_section_tokens = (
-                len(self.tokenizer.tokenize(SECTION_SEPARATOR)) + section_token_count
-            )
+            next_section_tokens = len(self.tokenizer.tokenize(SECTION_SEPARATOR)) + section_token_count
             if next_section_tokens + current_token_count <= content_token_limit:
                 if chunk_text:
                     chunk_text += SECTION_SEPARATOR
@@ -321,9 +320,7 @@ class Chunker:
             (
                 metadata_suffix_semantic,
                 metadata_suffix_keyword,
-            ) = _get_metadata_suffix_for_document_index(
-                document.metadata, include_separator=True
-            )
+            ) = _get_metadata_suffix_for_document_index(document.metadata, include_separator=True)
             metadata_tokens = len(self.tokenizer.tokenize(metadata_suffix_semantic))
 
         if metadata_tokens >= self.chunk_token_limit * MAX_METADATA_PERCENTAGE:

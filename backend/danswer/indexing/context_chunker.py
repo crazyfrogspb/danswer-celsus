@@ -29,24 +29,29 @@ class Section(NamedTuple):
 class RealLLM:
     def __init__(self):
         self.llm = get_default_llms()[0]
+        self.llm._temperature = 0.3
+        self.llm._model_kwargs.update({"num_ctx": 16000, "repeat_penalty": 1.05, "top_p": 0.95})
 
     def analyze_document(self, document_text: str) -> tuple[str, str]:
         prompt = textwrap.dedent(
             f"""
-            Given the following document text, provide a concise title and summary (1-2 sentences) in the language of the document.
-            Format: Title|||Summary
+            Для предоставленного документа предоставь заголовок и краткое содержание (1-2 предложения).
+            Заголовки и содержание должны быть на основном языке документа (обычно русский)
+            Формат:
+            Заголовок|||Содержание
 
-            Example:
+            Пример:
             Обзор Проекта|||Документ описывает текущий статус и планы развития проекта.
 
-            Result should include exactly one separator |||.
+            Ответ должен содержать ровно одну строчку с одним разделителем |||.
 
-            Document text:
+            Текст документа с нумерацией строк:
             {document_text}
         """
         ).strip()
 
         result = self.llm._invoke_implementation(prompt=prompt).content
+        print(result)
 
         try:
             title, summary = result.split("|||")
@@ -58,30 +63,29 @@ class RealLLM:
     def analyze_sections(self, document_text: str) -> list[Section]:
         prompt = textwrap.dedent(
             f"""
-            Given the following document text with line numbers, identify main semantic sections.
-            Sections can vary in length, but should generally be anywhere from a few paragraphs to a few pages long.
+            Для предоставленного документа с нумерацией строк определи основные семантические разделы. Разделы могут быть разной длины - от нескольких абзацев до нескольких страниц. Документ может быть текстом или серией сообщений из чата.
 
-            For each section, provide:
-            1. Starting line number (just the number, e.g. 5 not [5])
-            2. Ending line number (just the number)
-            3. Section title STRICTLY in the same langauge as the main part of the document
-            4. Brief section summary STRICTLY in the same langauge as the main part of the document (1-2 sentences)
+            Ответ должен иметь следующий формат:
+            Номер стартовой строки раздела|||Номер конечной строки раздела|||Заголовок раздела|||Краткое содержание раздела
 
-            Format each section exactly like this:
-            1|||11|||Общее положение|||Описание общей ситуации и целей
-            12|||25|||ММГ|||Обсуждение проекта ММГ и его статуса
+            Каждая строчка ответа должна содержать все четыре компонента и три разделителя '|||'
 
-            IMPORTANT: 
-            - Look for clear section headers in the text and use them as titles whenever relevant
-            - If the document looks like chat, you can group related messages together
-            - Make sure line numbers correspond to actual text lines
-            - Include ALL text in sections, don't leave any text uncovered
-            - Don't overlap sections
-            - Use EXACTLY the format shown in example above
-            - Keep document and section summaries concise (2-3 sentences max)
-            - Group related content together (questions with their topics)
+            Пример ответа:
+            1|||11|||Общее положение|||Описание общей ситуации и целей компании
+            12|||25|||Проект ММГ|||Обсуждение проекта ММГ и его статуса. Задачи на ноябрь 2006
+            26|||41|||Риски|||Обсуждение рисков, связанных со срывом сроков
 
-            Document text with line numbers:
+            ВАЖНО:
+            - Если в тексте присутствуют заголовки, можно использовать их в качестве разделителей разделов, если это уместно
+            - Заголовки и содержание должны быть на основном языке документа (обычно русский)
+            - Убедись, что номера строк соответствуют фактическим строкам текста
+            - Разделы не должны пересекаться по номерам строк
+            - Весь текст должен быть включен в разделы, не должно быть текста, который остался вне раздела
+            - Можно использовать только приведённый формат, ответ не должен содержать больше никакого текста
+            - Содержания разделов должны быть краткие - максимум 2-3 предложения
+            - Связанный контент должен быть в одном разделе - например, вопрос и ответ на него
+
+            Текст документа с нумерацией строк:
             {document_text}
         """
         ).strip()
@@ -119,7 +123,17 @@ class RealLLM:
             except Exception as e:
                 print(f"Error processing section line '{line}': {e}")
                 continue
+        
+        # Small LLMs sometimes omit some lines from the end of the doc 
+        total_lines = len(document_text.split("\n"))
+        if sections:
+            last_covered_line = max(section.end_line for section in sections)
+        else:
+            last_covered_line = 0
+        if last_covered_line < total_lines:
+            sections.append(Section(start_line=last_covered_line + 1, end_line=total_lines, title="", summary=""))
 
+        print(sections)
         return sections
 
 
@@ -200,11 +214,11 @@ class ContextChunker(Chunker):
         """Generate document context using LLM"""
         document_text = "\n".join(section.text for section in document.sections)
         title, summary = self.llm.analyze_document(document_text)
-        return f"Document context: this excerpt is from a document titled '{title}'. {summary}"
+        return f"Контекст документа: этот отрывок из документа с названием '{title}'. Содержание документа: {summary}"
 
     def _get_section_context(self, section: Section) -> str:
         """Generate section context"""
-        return f"Section context: this excerpt is from the section titled '{section.title}'. {section.summary}"
+        return f"Контекст раздела: этот отрывок из раздела с названием '{section.title}'. Содержание раздела: {section.summary}"
 
     def _chunk_section(
         self,
@@ -269,6 +283,7 @@ class ContextChunker(Chunker):
 
             # Get document context
             document_context = self._get_document_context(document)
+            print("DOCUMENT CONTEXT: ", document_context)
 
             # Get semantic sections using LLM
             sections = self.llm.analyze_sections(numbered_text)
@@ -314,6 +329,8 @@ class ContextChunker(Chunker):
                     while start < len(tokens):
                         end = min(start + max_tokens_per_chunk - len(context_tokens), len(tokens))
                         chunk_text = " ".join(tokens[start:end])
+                        if "▁" in chunk_text:
+                            chunk_text = "".join(tokens[start:end]).replace("▁", " ")
                         full_chunk_text = f"{context}\n\n{chunk_text}"
 
                         print("CHUNK LENGTH: ", len(self.tokenizer.tokenize(full_chunk_text)))
